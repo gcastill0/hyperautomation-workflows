@@ -1,0 +1,785 @@
+{
+  "name": "Netskope Account Takeover — Detect, Enrich, Approve & Suspend",
+  "description": "Runs every 15 minutes. Hunts three Netskope-native ATO signals confirmed present in this SDL tenant via live schema discovery on 2026-07-15: unmapped.alert_type == 'uba' (Netskope UBA anomaly), unmapped.alert_type == 'Compromised Credential', and unmapped.activity == 'Login Failed' bursts (>=5 per user in the 15m window). For each finding: enriches the source IP via VirusTotal, posts an Approve/Deny prompt to Slack, waits up to 30 minutes for an analyst response, and on approval suspends the user in Okta. On timeout or denial, logs a no-action message to the same Slack thread for manual follow-up. No S1-native alert exists for these Netskope findings in this tenant (detectionSource.product was null across all 950 sampled alert-source events), so this uses a Scheduled Trigger + PowerQuery hunt rather than a Singularity Response Trigger.",
+  "actions": [
+    {
+      "action": {
+        "type": "scheduled_trigger",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Scheduled Trigger",
+          "action_type": "scheduled_trigger",
+          "schedule_method": "interval",
+          "until": null,
+          "max_runs": 1,
+          "schedule_value": [
+            { "schedule_method": "interval", "interval_unit": "minutes", "interval_value": 15, "tz": "America/New_York" }
+          ],
+          "start_at_method": "immediately",
+          "start_at": null,
+          "ends_on": "never"
+        },
+        "state": "active",
+        "description": "Fires every 15 minutes to hunt Netskope ATO signals.",
+        "client_data": { "position": { "x": 0, "y": 0 }, "dimensions": { "width": 256, "height": 100 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 23,
+      "connected_to": [ { "target": 22, "custom_handle": null } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "variable",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Set Secrets and Config",
+          "action_type": "variable",
+          "variables": [
+            { "name": "virustotal_api_key", "value": "<VIRUSTOTAL_API_KEY>", "should_use_as_output": false, "is_secret": true },
+            { "name": "slack_bot_token", "value": "<SLACK_BOT_TOKEN>", "should_use_as_output": false, "is_secret": true },
+            { "name": "slack_channel", "value": "#soc-ato-alerts", "should_use_as_output": false, "is_secret": false },
+            { "name": "okta_domain", "value": "<your-okta-subdomain>", "should_use_as_output": false, "is_secret": false },
+            { "name": "okta_api_token", "value": "<OKTA_API_TOKEN>", "should_use_as_output": false, "is_secret": true }
+          ],
+          "variables_scope": "local",
+          "expire_in_unit": null,
+          "expire_in_value": null,
+          "expire_method": null,
+          "workflows_acl": null
+        },
+        "state": "active",
+        "description": "Fill in real values before activating. All literals, safe to group in one action.",
+        "client_data": { "position": { "x": 0, "y": 177 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 22,
+      "connected_to": [ { "target": 21, "custom_handle": null } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "http_request",
+        "tag": "integration",
+        "connection_id": null,
+        "connection_name": "",
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "PQ - Netskope High-Confidence ATO Findings",
+          "action_type": "http_request",
+          "public_action_id": null,
+          "method": "post",
+          "url": "{{Connection.protocol}}{{Connection.url}}/sdl/api/powerQuery",
+          "url_path": null,
+          "url_prefix": null,
+          "payload": "{\n  \"query\": \"dataSource.name=='Netskope' (unmapped.alert_type=='uba' OR unmapped.alert_type=='Compromised Credential') | columns time, actor.user.email_addr, actor.user.name, src_endpoint.ip, src_endpoint.location.city, src_endpoint.location.country, unmapped.alert_type, unmapped.alert_name, finding_info.title | sort -time | limit 200\",\n  \"startTime\": \"20m\",\n  \"endTime\": \"0m\"\n}",
+          "parameters": [],
+          "retry_on_status_code": null,
+          "retry_on_status_codes": [500],
+          "ssl_verification": true,
+          "timeout": 30,
+          "headers": { "Content-Type": "application/json" },
+          "use_authentication_data": true,
+          "use_proxy": false,
+          "redirect_follow": true,
+          "continue_on_fail": false,
+          "body_type": null
+        },
+        "state": "active",
+        "description": "Confirmed fields from live schema discovery, 2026-07-15. Uses the pre-configured SentinelOne integration for this console.",
+        "client_data": { "position": { "x": 0, "y": 354 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 21,
+      "connected_to": [ { "target": 20, "custom_handle": null } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "http_request",
+        "tag": "integration",
+        "connection_id": null,
+        "connection_name": "",
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "PQ - Netskope Login-Failed Burst",
+          "action_type": "http_request",
+          "public_action_id": null,
+          "method": "post",
+          "url": "{{Connection.protocol}}{{Connection.url}}/sdl/api/powerQuery",
+          "url_path": null,
+          "url_prefix": null,
+          "payload": "{\n  \"query\": \"dataSource.name=='Netskope' unmapped.activity=='Login Failed' | group failCount=count(), ips=array_agg_distinct(src_endpoint.ip) by actor.user.email_addr | let fc = number(failCount) | filter fc >= 5 | sort -failCount | limit 200\",\n  \"startTime\": \"20m\",\n  \"endTime\": \"0m\"\n}",
+          "parameters": [],
+          "retry_on_status_code": null,
+          "retry_on_status_codes": [500],
+          "ssl_verification": true,
+          "timeout": 30,
+          "headers": { "Content-Type": "application/json" },
+          "use_authentication_data": true,
+          "use_proxy": false,
+          "redirect_follow": true,
+          "continue_on_fail": false,
+          "body_type": null
+        },
+        "state": "active",
+        "description": "number() cast applied per tenant convention to failsafe count() against schema drift.",
+        "client_data": { "position": { "x": 0, "y": 531 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 20,
+      "connected_to": [ { "target": 19, "custom_handle": null } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "variable",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "HC Columns",
+          "action_type": "variable",
+          "variables": [
+            { "name": "hc_cols", "value": "{{Function.JQ(pq-netskope-high-confidence-ato-findings.body.columns, \".[].name\")}}", "should_use_as_output": false, "is_secret": false }
+          ],
+          "variables_scope": "local",
+          "expire_in_unit": null,
+          "expire_in_value": null,
+          "expire_method": null,
+          "workflows_acl": null
+        },
+        "state": "active",
+        "description": null,
+        "client_data": { "position": { "x": 0, "y": 708 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 19,
+      "connected_to": [ { "target": 18, "custom_handle": null } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "variable",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "HC Rows Mapped",
+          "action_type": "variable",
+          "variables": [
+            { "name": "hc_rows", "value": "{{Function.MAP_TABLE(local_var.hc_cols, pq-netskope-high-confidence-ato-findings.body.values)}}", "should_use_as_output": false, "is_secret": false }
+          ],
+          "variables_scope": "local",
+          "expire_in_unit": null,
+          "expire_in_value": null,
+          "expire_method": null,
+          "workflows_acl": null
+        },
+        "state": "active",
+        "description": null,
+        "client_data": { "position": { "x": 0, "y": 885 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 18,
+      "connected_to": [ { "target": 17, "custom_handle": null } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "variable",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "HC Normalized Findings",
+          "action_type": "variable",
+          "variables": [
+            { "name": "hc_normalized", "value": "{{Function.JQ(local_var.hc_rows, \"[.[] | {user: .[\\\"actor.user.email_addr\\\"], ip: .[\\\"src_endpoint.ip\\\"], city: .[\\\"src_endpoint.location.city\\\"], country: .[\\\"src_endpoint.location.country\\\"], signal: .[\\\"unmapped.alert_type\\\"], detail: .[\\\"finding_info.title\\\"], confidence: \\\"high\\\"}]\")}}", "should_use_as_output": false, "is_secret": false }
+          ],
+          "variables_scope": "local",
+          "expire_in_unit": null,
+          "expire_in_value": null,
+          "expire_method": null,
+          "workflows_acl": null
+        },
+        "state": "active",
+        "description": "Normalizes uba / Compromised Credential rows into a common {user, ip, city, country, signal, detail, confidence} shape.",
+        "client_data": { "position": { "x": 0, "y": 1062 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 17,
+      "connected_to": [ { "target": 16, "custom_handle": null } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "variable",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "LF Columns",
+          "action_type": "variable",
+          "variables": [
+            { "name": "lf_cols", "value": "{{Function.JQ(pq-netskope-login-failed-burst.body.columns, \".[].name\")}}", "should_use_as_output": false, "is_secret": false }
+          ],
+          "variables_scope": "local",
+          "expire_in_unit": null,
+          "expire_in_value": null,
+          "expire_method": null,
+          "workflows_acl": null
+        },
+        "state": "active",
+        "description": null,
+        "client_data": { "position": { "x": 0, "y": 1239 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 16,
+      "connected_to": [ { "target": 15, "custom_handle": null } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "variable",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "LF Rows Mapped",
+          "action_type": "variable",
+          "variables": [
+            { "name": "lf_rows", "value": "{{Function.MAP_TABLE(local_var.lf_cols, pq-netskope-login-failed-burst.body.values)}}", "should_use_as_output": false, "is_secret": false }
+          ],
+          "variables_scope": "local",
+          "expire_in_unit": null,
+          "expire_in_value": null,
+          "expire_method": null,
+          "workflows_acl": null
+        },
+        "state": "active",
+        "description": null,
+        "client_data": { "position": { "x": 0, "y": 1416 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 15,
+      "connected_to": [ { "target": 14, "custom_handle": null } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "variable",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "LF Normalized Findings",
+          "action_type": "variable",
+          "variables": [
+            { "name": "lf_normalized", "value": "{{Function.JQ(local_var.lf_rows, \"[.[] | {user: .[\\\"actor.user.email_addr\\\"], ip: (.[\\\"ips\\\"] // \\\"\\\"), city: \\\"\\\", country: \\\"\\\", signal: \\\"Login Failed Burst\\\", detail: ((.[\\\"failCount\\\"]|tostring) + \\\" failed logins in 15m\\\"), confidence: \\\"medium\\\"}]\")}}", "should_use_as_output": false, "is_secret": false }
+          ],
+          "variables_scope": "local",
+          "expire_in_unit": null,
+          "expire_in_value": null,
+          "expire_method": null,
+          "workflows_acl": null
+        },
+        "state": "active",
+        "description": "Normalizes login-failed-burst rows into the same common shape as HC findings.",
+        "client_data": { "position": { "x": 0, "y": 1593 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 14,
+      "connected_to": [ { "target": 13, "custom_handle": null } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "variable",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "All Findings",
+          "action_type": "variable",
+          "variables": [
+            { "name": "all_findings", "value": "{{Function.UNION(local_var.hc_normalized, local_var.lf_normalized)}}", "should_use_as_output": false, "is_secret": false }
+          ],
+          "variables_scope": "local",
+          "expire_in_unit": null,
+          "expire_in_value": null,
+          "expire_method": null,
+          "workflows_acl": null
+        },
+        "state": "active",
+        "description": null,
+        "client_data": { "position": { "x": 0, "y": 1770 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 13,
+      "connected_to": [ { "target": 12, "custom_handle": null } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "condition",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Any Findings This Run",
+          "action_type": "condition",
+          "condition_type": "multi",
+          "condition": null,
+          "conditions": [
+            { "input_value": "{{Function.LENGTH(local_var.all_findings)}}", "compared_value": "0", "comparison_operator": "greater_than" }
+          ],
+          "conditions_relationship": "and"
+        },
+        "state": "active",
+        "description": "Empty result is a real, reportable finding (0 ATO signals this run) — the false branch is intentionally a no-op, not an error.",
+        "client_data": { "position": { "x": 0, "y": 1947 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 12,
+      "connected_to": [ { "target": 11, "custom_handle": "true" } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "loop",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Loop Findings",
+          "action_type": "loop",
+          "loop_type": "dynamic",
+          "number_of_iterations": 1,
+          "object_to_iterate": "{{local_var.all_findings}}",
+          "is_parallel": false
+        },
+        "state": "active",
+        "description": "Sequential (not parallel) to respect VirusTotal / Slack / Okta rate limits.",
+        "client_data": { "position": { "x": 0, "y": 2124 }, "dimensions": { "width": 760, "height": 750 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 11,
+      "connected_to": [ { "target": 10, "custom_handle": "inner" } ],
+      "parent_action": null
+    },
+    {
+      "action": {
+        "type": "http_request",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "VirusTotal IP Report",
+          "action_type": "http_request",
+          "public_action_id": null,
+          "method": "get",
+          "url": "https://www.virustotal.com/api/v3/ip_addresses/{{loop-findings.item.ip}}",
+          "url_path": null,
+          "url_prefix": null,
+          "payload": null,
+          "parameters": [],
+          "retry_on_status_code": null,
+          "retry_on_status_codes": [500],
+          "ssl_verification": true,
+          "timeout": 30,
+          "headers": { "x-apikey": "{{local_var.virustotal_api_key}}", "Content-Type": "application/json" },
+          "use_authentication_data": false,
+          "use_proxy": false,
+          "redirect_follow": true,
+          "continue_on_fail": true,
+          "body_type": null
+        },
+        "state": "active",
+        "description": "continue_on_fail: true because login-failed-burst rows may have an empty ip. Mandatory per CLAUDE.md — every IOC gets threat-intel enrichment before any verdict.",
+        "client_data": { "position": { "x": 300, "y": 2301 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 10,
+      "connected_to": [ { "target": 9, "custom_handle": null } ],
+      "parent_action": 11
+    },
+    {
+      "action": {
+        "type": "variable",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "TI Malicious Count",
+          "action_type": "variable",
+          "variables": [
+            { "name": "ti_malicious", "value": "{{Function.INT(Function.DEFAULT(virustotal-ip-report.body.data.attributes.last_analysis_stats.malicious, 0))}}", "should_use_as_output": false, "is_secret": false }
+          ],
+          "variables_scope": "local",
+          "expire_in_unit": null,
+          "expire_in_value": null,
+          "expire_method": null,
+          "workflows_acl": null
+        },
+        "state": "active",
+        "description": null,
+        "client_data": { "position": { "x": 300, "y": 2478 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 9,
+      "connected_to": [ { "target": 8, "custom_handle": null } ],
+      "parent_action": 11
+    },
+    {
+      "action": {
+        "type": "variable",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Build Finding Note",
+          "action_type": "variable",
+          "variables": [
+            { "name": "finding_note", "value": "Netskope ATO signal: {{loop-findings.item.signal}} | user: {{loop-findings.item.user}} | src ip: {{loop-findings.item.ip}} ({{loop-findings.item.city}}, {{loop-findings.item.country}}) | detail: {{loop-findings.item.detail}} | confidence: {{loop-findings.item.confidence}} | VT malicious engines: {{local_var.ti_malicious}}/94", "should_use_as_output": false, "is_secret": false }
+          ],
+          "variables_scope": "local",
+          "expire_in_unit": null,
+          "expire_in_value": null,
+          "expire_method": null,
+          "workflows_acl": null
+        },
+        "state": "active",
+        "description": null,
+        "client_data": { "position": { "x": 300, "y": 2655 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 8,
+      "connected_to": [ { "target": 7, "custom_handle": null } ],
+      "parent_action": 11
+    },
+    {
+      "action": {
+        "type": "http_request",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Slack - Post ATO Finding for Review",
+          "action_type": "http_request",
+          "public_action_id": null,
+          "method": "post",
+          "url": "https://slack.com/api/chat.postMessage",
+          "url_path": null,
+          "url_prefix": null,
+          "payload": "{\n  \"channel\": \"{{local_var.slack_channel}}\",\n  \"text\": \"Netskope ATO finding requires review: {{loop-findings.item.user}}\",\n  \"blocks\": [\n    { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"*Netskope ATO Finding*\\n{{local_var.finding_note}}\" } },\n    { \"type\": \"actions\", \"elements\": [\n      { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"Approve — Suspend User\" }, \"style\": \"danger\", \"value\": \"approve\", \"action_id\": \"approve\" },\n      { \"type\": \"button\", \"text\": { \"type\": \"plain_text\", \"text\": \"Deny\" }, \"value\": \"deny\", \"action_id\": \"deny\" }\n    ] }\n  ]\n}",
+          "parameters": [],
+          "retry_on_status_code": null,
+          "retry_on_status_codes": [500],
+          "ssl_verification": true,
+          "timeout": 30,
+          "headers": { "Authorization": "Bearer {{local_var.slack_bot_token}}", "Content-Type": "application/json" },
+          "use_authentication_data": false,
+          "use_proxy": false,
+          "redirect_follow": true,
+          "continue_on_fail": false,
+          "body_type": null
+        },
+        "state": "active",
+        "description": null,
+        "client_data": { "position": { "x": 300, "y": 2832 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 7,
+      "connected_to": [ { "target": 6, "custom_handle": null } ],
+      "parent_action": 11
+    },
+    {
+      "action": {
+        "type": "wait_for_slack",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Wait for Slack",
+          "action_type": "wait_for_slack",
+          "message_ts": "{{slack-post-ato-finding-for-review.body.ts}}",
+          "time_unit": "minutes",
+          "value": 30
+        },
+        "state": "active",
+        "description": null,
+        "client_data": { "position": { "x": 300, "y": 3009 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 6,
+      "connected_to": [ { "target": 5, "custom_handle": null } ],
+      "parent_action": 11
+    },
+    {
+      "action": {
+        "type": "condition",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Analyst Approved Suspend",
+          "action_type": "condition",
+          "condition_type": "multi",
+          "condition": null,
+          "conditions": [
+            { "input_value": "{{wait-for-slack.timeout}}", "compared_value": "false", "comparison_operator": "equals" },
+            { "input_value": "{{wait-for-slack.body.actions[0].value}}", "compared_value": "approve", "comparison_operator": "equals" }
+          ],
+          "conditions_relationship": "and"
+        },
+        "state": "active",
+        "description": "False branch covers BOTH timeout and explicit deny — split further if you want different follow-up per case (e.g. auto-escalate on timeout only).",
+        "client_data": { "position": { "x": 300, "y": 3186 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 5,
+      "connected_to": [
+        { "target": 4, "custom_handle": "true" },
+        { "target": 1, "custom_handle": "false" }
+      ],
+      "parent_action": 11
+    },
+    {
+      "action": {
+        "type": "http_request",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Okta - Suspend User",
+          "action_type": "http_request",
+          "public_action_id": null,
+          "method": "post",
+          "url": "https://{{local_var.okta_domain}}.okta.com/api/v1/users/{{Function.URL_ENCODE(loop-findings.item.user)}}/lifecycle/suspend",
+          "url_path": null,
+          "url_prefix": null,
+          "payload": null,
+          "parameters": [],
+          "retry_on_status_code": null,
+          "retry_on_status_codes": [500],
+          "ssl_verification": true,
+          "timeout": 30,
+          "headers": { "Authorization": "SSWS {{local_var.okta_api_token}}", "Content-Type": "application/json" },
+          "use_authentication_data": false,
+          "use_proxy": false,
+          "redirect_follow": true,
+          "continue_on_fail": true,
+          "body_type": null
+        },
+        "state": "active",
+        "description": "No Okta Hyperautomation integration was visible on this tenant's active workflow list — built as a raw HTTP call against the Okta Users API. Swap to an integration-backed action if one exists in Hyperautomation → Integrations.",
+        "client_data": { "position": { "x": 160, "y": 3363 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 4,
+      "connected_to": [ { "target": 3, "custom_handle": null } ],
+      "parent_action": 11
+    },
+    {
+      "action": {
+        "type": "variable",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Disposition Note - Approved",
+          "action_type": "variable",
+          "variables": [
+            { "name": "disposition_note_approved", "value": "Suspended {{loop-findings.item.user}} in Okta after Slack approval. Signal: {{loop-findings.item.signal}}. Detail: {{loop-findings.item.detail}}. VT malicious engines: {{local_var.ti_malicious}}/94.", "should_use_as_output": false, "is_secret": false }
+          ],
+          "variables_scope": "local",
+          "expire_in_unit": null,
+          "expire_in_value": null,
+          "expire_method": null,
+          "workflows_acl": null
+        },
+        "state": "active",
+        "description": null,
+        "client_data": { "position": { "x": 160, "y": 3540 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 3,
+      "connected_to": [ { "target": 2, "custom_handle": null } ],
+      "parent_action": 11
+    },
+    {
+      "action": {
+        "type": "http_request",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Slack - Confirm User Suspended",
+          "action_type": "http_request",
+          "public_action_id": null,
+          "method": "post",
+          "url": "https://slack.com/api/chat.postMessage",
+          "url_path": null,
+          "url_prefix": null,
+          "payload": "{\n  \"channel\": \"{{local_var.slack_channel}}\",\n  \"thread_ts\": \"{{slack-post-ato-finding-for-review.body.ts}}\",\n  \"text\": \"Suspended: {{local_var.disposition_note_approved}}\"\n}",
+          "parameters": [],
+          "retry_on_status_code": null,
+          "retry_on_status_codes": [500],
+          "ssl_verification": true,
+          "timeout": 30,
+          "headers": { "Authorization": "Bearer {{local_var.slack_bot_token}}", "Content-Type": "application/json" },
+          "use_authentication_data": false,
+          "use_proxy": false,
+          "redirect_follow": true,
+          "continue_on_fail": true,
+          "body_type": null
+        },
+        "state": "active",
+        "description": "Threaded reply keeps the disposition auditable next to the original prompt. Swap for an SDL/ticket write if you want it outside Slack.",
+        "client_data": { "position": { "x": 160, "y": 3717 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 2,
+      "connected_to": [],
+      "parent_action": 11
+    },
+    {
+      "action": {
+        "type": "variable",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Disposition Note - Not Approved",
+          "action_type": "variable",
+          "variables": [
+            { "name": "disposition_note_not_approved", "value": "No suspend action taken for {{loop-findings.item.user}} (timed out after 30 min or analyst denied). Signal: {{loop-findings.item.signal}}. Detail: {{loop-findings.item.detail}}. Recommend manual review.", "should_use_as_output": false, "is_secret": false }
+          ],
+          "variables_scope": "local",
+          "expire_in_unit": null,
+          "expire_in_value": null,
+          "expire_method": null,
+          "workflows_acl": null
+        },
+        "state": "active",
+        "description": null,
+        "client_data": { "position": { "x": 440, "y": 3363 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 1,
+      "connected_to": [ { "target": 0, "custom_handle": null } ],
+      "parent_action": 11
+    },
+    {
+      "action": {
+        "type": "http_request",
+        "tag": "core_action",
+        "connection_id": null,
+        "connection_name": null,
+        "use_connection_name": false,
+        "integration_id": null,
+        "data": {
+          "name": "Slack - Log No Action Taken",
+          "action_type": "http_request",
+          "public_action_id": null,
+          "method": "post",
+          "url": "https://slack.com/api/chat.postMessage",
+          "url_path": null,
+          "url_prefix": null,
+          "payload": "{\n  \"channel\": \"{{local_var.slack_channel}}\",\n  \"thread_ts\": \"{{slack-post-ato-finding-for-review.body.ts}}\",\n  \"text\": \"No action taken: {{local_var.disposition_note_not_approved}}\"\n}",
+          "parameters": [],
+          "retry_on_status_code": null,
+          "retry_on_status_codes": [500],
+          "ssl_verification": true,
+          "timeout": 30,
+          "headers": { "Authorization": "Bearer {{local_var.slack_bot_token}}", "Content-Type": "application/json" },
+          "use_authentication_data": false,
+          "use_proxy": false,
+          "redirect_follow": true,
+          "continue_on_fail": true,
+          "body_type": null
+        },
+        "state": "active",
+        "description": null,
+        "client_data": { "position": { "x": 440, "y": 3540 }, "dimensions": { "width": 256, "height": 76 }, "collapsed": false },
+        "snippet_workflow_id": null,
+        "snippet_version_id": null
+      },
+      "export_id": 0,
+      "connected_to": [],
+      "parent_action": 11
+    }
+  ]
+}

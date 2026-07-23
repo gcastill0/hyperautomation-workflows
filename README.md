@@ -15,4 +15,4 @@ Skill source: [github.com/Sentinel-One/ai-siem — plugins/s1-secops-skills/skil
 Published here as a worked example:
 
 - [`netskope-ato-hyperautomation-workflow.json`](./netskope/netskope-ato-hyperautomation-workflow.json) is the workflow template. Hunts Netskope-native account-takeover signals like UBA anomaly, compromised credential, login-failed bursts. It thenn enriches the source IP via VirusTotal, and gates an Okta user-suspend behind Slack analyst approval.
-- [`netskope-ato-workflow-deployment-guide.md`](./netskope/netskope-ato-workflow-deployment-guide.md) provides the architecture diagram, prerequisites, deployment steps, validation checklist, and troubleshooting for importing and configuring it.
+- [`netskope-ato-workflow-deployment-guide.md`](./netskope/README.md) provides the architecture diagram, prerequisites, deployment steps, validation checklist, and troubleshooting for importing and configuring it.
